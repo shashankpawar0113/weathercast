@@ -1,6 +1,12 @@
 import type { Plugin } from 'vite';
 import dotenv from 'dotenv';
-import { normalizeWeatherData, generateSimulatedWeather, searchSimulatedCities } from './server/weatherApiCore';
+import {
+  normalizeWeatherData,
+  fetchOpenMeteoWeather,
+  geocodeOpenMeteo,
+  generateSimulatedWeather,
+  searchSimulatedCities,
+} from './server/weatherApiCore';
 
 // Load .env on server start
 dotenv.config();
@@ -11,7 +17,7 @@ export function weatherApiPlugin(): Plugin {
     configureServer(server) {
       server.middlewares.use(async (req, res, next) => {
         const url = new URL(req.url || '', `http://${req.headers.host}`);
-        
+
         if (url.pathname === '/api/detect-location') {
           try {
             const geoRes = await fetch('https://ipapi.co/json/');
@@ -55,17 +61,17 @@ export function weatherApiPlugin(): Plugin {
             return;
           }
 
+          const cleanQuery = q.trim();
           const apiKey = process.env.OPENWEATHER_API_KEY?.trim();
 
           if (apiKey && apiKey !== '') {
             try {
               const geoRes = await fetch(
-                `https://api.openweathermap.org/geo/1.0/direct?q=${encodeURIComponent(q)}&limit=10&appid=${apiKey}`
+                `https://api.openweathermap.org/geo/1.0/direct?q=${encodeURIComponent(cleanQuery)}&limit=10&appid=${apiKey}`
               );
               if (geoRes.ok) {
                 const data = await geoRes.json();
                 if (Array.isArray(data) && data.length > 0) {
-                  // Deduplicate by name, state and country
                   const seen = new Set<string>();
                   const uniqueResults: any[] = [];
                   for (const item of data) {
@@ -86,8 +92,20 @@ export function weatherApiPlugin(): Plugin {
             }
           }
 
-          // Fallback search
-          const fallbackResults = searchSimulatedCities(q);
+          // Open-Meteo Geocoding Fallback
+          try {
+            const openMeteoResults = await geocodeOpenMeteo(cleanQuery);
+            if (openMeteoResults.length > 0) {
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify(openMeteoResults.slice(0, 5)));
+              return;
+            }
+          } catch (err) {
+            console.error('[WeatherAPI Open-Meteo Geocode Error]:', err);
+          }
+
+          // Simulated fallback
+          const fallbackResults = searchSimulatedCities(cleanQuery);
           res.setHeader('Content-Type', 'application/json');
           res.end(JSON.stringify(fallbackResults));
           return;
@@ -106,13 +124,12 @@ export function weatherApiPlugin(): Plugin {
             return;
           }
 
+          let queryLat = lat ? parseFloat(lat) : null;
+          let queryLon = lon ? parseFloat(lon) : null;
+          let cityName = city || '';
+
           if (apiKey && apiKey !== '') {
             try {
-              let queryLat = lat ? parseFloat(lat) : null;
-              let queryLon = lon ? parseFloat(lon) : null;
-              let cityName = city || '';
-
-              // If city specified without coords, geocode first
               if ((queryLat === null || queryLon === null) && cityName) {
                 const geoRes = await fetch(
                   `https://api.openweathermap.org/geo/1.0/direct?q=${encodeURIComponent(cityName)}&limit=1&appid=${apiKey}`
@@ -127,7 +144,6 @@ export function weatherApiPlugin(): Plugin {
                 }
               }
 
-              // If coordinates specified without city name, reverse geocode to get primary city name
               if (!cityName && queryLat !== null && queryLon !== null) {
                 try {
                   const revRes = await fetch(
@@ -145,7 +161,6 @@ export function weatherApiPlugin(): Plugin {
               }
 
               if (queryLat !== null && queryLon !== null) {
-                // Fetch Current Weather and 5-Day / 3-Hour Forecast concurrently
                 const [currentRes, forecastRes] = await Promise.all([
                   fetch(
                     `https://api.openweathermap.org/data/2.5/weather?lat=${queryLat}&lon=${queryLon}&units=metric&appid=${apiKey}`
@@ -168,19 +183,44 @@ export function weatherApiPlugin(): Plugin {
                   res.setHeader('Content-Type', 'application/json');
                   res.end(JSON.stringify(normalized));
                   return;
-                } else {
-                  console.warn(
-                    `[WeatherAPI Warning] OpenWeather API response not ok. Current: ${currentRes.status}, Forecast: ${forecastRes.status}`
-                  );
                 }
               }
             } catch (err) {
-              console.error('[WeatherAPI Fetch Error]:', err);
+              console.warn('[WeatherAPI OpenWeather Error, trying Open-Meteo]:', err);
             }
           }
 
-          // Fallback generation if key missing, invalid or failed
-          const fallbackData = generateSimulatedWeather(city || 'Mumbai', lat ? parseFloat(lat) : undefined, lon ? parseFloat(lon) : undefined);
+          // Open-Meteo Zero-Key Live Engine
+          try {
+            if ((queryLat === null || queryLon === null) && cityName) {
+              const geoResults = await geocodeOpenMeteo(cityName);
+              if (geoResults.length > 0) {
+                queryLat = geoResults[0].lat;
+                queryLon = geoResults[0].lon;
+                cityName = geoResults[0].name;
+              }
+            }
+
+            if (queryLat !== null && queryLon !== null) {
+              const openMeteoData = await fetchOpenMeteoWeather(
+                queryLat,
+                queryLon,
+                cityName || 'Weather Location'
+              );
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify(openMeteoData));
+              return;
+            }
+          } catch (err) {
+            console.error('[WeatherAPI Open-Meteo Live Error]:', err);
+          }
+
+          // Fallback simulation
+          const fallbackData = generateSimulatedWeather(
+            cityName || city || 'Mumbai',
+            queryLat !== null ? queryLat : undefined,
+            queryLon !== null ? queryLon : undefined
+          );
           res.setHeader('Content-Type', 'application/json');
           res.end(JSON.stringify(fallbackData));
           return;
