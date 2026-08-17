@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <defs>
+    <linearGradient id="sunGrad" x1="16" y1="16" x2="48" y2="48" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F59E0B" />
+      <stop offset="1" stop-color="#EF4444" />
+    </linearGradient>
+    <linearGradient id="cloudGrad" x1="10" y1="24" x2="54" y2="56" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#38BDF8" />
+      <stop offset="1" stop-color="#0284C7" />
+    </linearGradient>
+  </defs>
+  <circle cx="28" cy="26" r="14" fill="url(#sunGrad)" />
+  <path d="M46 32a10 10 0 0 0-19.6-2.8A12 12 0 0 0 14 40a12 12 0 0 0 12 12h22a10 10 0 0 0 0-20h-2z" fill="url(#cloudGrad)" opacity="0.9" />
+  <circle cx="48" cy="46" r="1.5" fill="#E0F2FE" />
+  <circle cx="36" cy="50" r="1.5" fill="#E0F2FE" />
+  <circle cx="24" cy="48" r="1.5" fill="#E0F2FE" />
+</svg>
